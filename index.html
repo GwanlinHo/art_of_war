@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#eef0ec">
+<title>孫子兵法研讀</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="金剛經">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="title-row">
+    <h1>孫子兵法研讀</h1>
+    <button id="about-btn" class="icon-btn" aria-label="關於本站">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor"/></svg>
+    </button>
+  </div>
+  <div class="chapter-bar">
+    <button id="prev-btn" class="nav-btn" aria-label="上一節">‹</button>
+    <button id="toc-btn" class="chapter-name">
+      <span class="chapter-book" id="chapter-book">始計第一</span>
+      <span id="chapter-title">兵者國之大事</span>
+      <span class="chapter-hint">目錄</span>
+    </button>
+    <button id="next-btn" class="nav-btn" aria-label="下一節">›</button>
+  </div>
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-pane="text" role="tab">原文</button>
+    <button class="tab" data-pane="plain" role="tab">白話</button>
+    <button class="tab" data-pane="essence" role="tab">要義解讀</button>
+  </div>
+</header>
+
+<main id="content" class="content">
+  <article id="pane-text" class="pane pane-text"></article>
+  <article id="pane-plain" class="pane hidden"></article>
+  <article id="pane-essence" class="pane hidden"></article>
+</main>
+
+<footer class="player">
+  <div class="player-row">
+    <button id="play-btn" class="play-btn" title="按一下開始或暫停，長按停止並回到開頭">
+      <svg id="icon-play" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5.5l11 6.5-11 6.5z" fill="currentColor"/></svg>
+      <svg id="icon-pause" class="hidden" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><rect x="7" y="5.5" width="3.6" height="13" fill="currentColor"/><rect x="13.4" y="5.5" width="3.6" height="13" fill="currentColor"/></svg>
+      <span id="play-label">朗讀</span>
+    </button>
+    <button id="settings-btn" class="ctl-btn" aria-label="朗讀設定">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M5 8h14M5 16h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="8" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="15" cy="16" r="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+    </button>
+    <video id="wake-video" class="wake-video" muted playsinline loop preload="auto" aria-hidden="true"></video>
+    <span id="status" class="status-text"></span>
+  </div>
+</footer>
+
+<div id="toc" class="sheet hidden" role="dialog" aria-label="目錄">
+  <div class="sheet-card">
+    <div class="sheet-head"><h2>目錄</h2><button class="close-btn" data-close="toc" aria-label="關閉">×</button></div>
+    <ol id="toc-list" class="toc-list"></ol>
+  </div>
+</div>
+
+<div id="settings" class="sheet hidden" role="dialog" aria-label="朗讀設定">
+  <div class="sheet-card">
+    <div class="sheet-head"><h2>朗讀設定</h2><button class="close-btn" data-close="settings" aria-label="關閉">×</button></div>
+    <div class="setting">
+      <label for="scope-sel">朗讀範圍</label>
+      <select id="scope-sel">
+        <option value="all">原文 + 白話 + 要義解讀</option>
+        <option value="text">只讀原文</option>
+        <option value="plain">只讀白話</option>
+        <option value="essence">只讀要義解讀</option>
+      </select>
+    </div>
+    <div class="setting">
+      <label>內文字體大小</label>
+      <div id="font-group" class="seg-group" role="group">
+        <button class="seg-btn" data-font="0">小</button>
+        <button class="seg-btn" data-font="1">中</button>
+        <button class="seg-btn" data-font="2">大</button>
+        <button class="seg-btn" data-font="3">特大</button>
+      </div>
+    </div>
+    <div class="setting">
+      <label for="rate-range">語速 <span id="rate-val">0.85</span></label>
+      <input id="rate-range" type="range" min="0.5" max="1.3" step="0.05" value="0.85">
+    </div>
+    <div class="setting">
+      <label for="pause-range">段落間停頓 <span id="pause-val">2.0</span> 秒</label>
+      <input id="pause-range" type="range" min="0.5" max="5" step="0.5" value="2">
+    </div>
+    <div class="setting">
+      <label for="voice-sel">語音</label>
+      <select id="voice-sel"><option value="">系統預設</option></select>
+    </div>
+    <label class="switch"><input id="auto-next" type="checkbox"> 讀完自動接續下一節</label>
+    <label class="switch"><input id="keep-awake" type="checkbox" checked> 朗讀時保持螢幕常亮</label>
+    <p id="wake-note" class="note"></p>
+  </div>
+</div>
+
+<div id="about" class="sheet hidden" role="dialog" aria-label="關於">
+  <div class="sheet-card">
+    <div class="sheet-head"><h2>關於本站</h2><button class="close-btn" data-close="about" aria-label="關閉">×</button></div>
+    <div class="about-body">
+      <p><b>原文</b>：《孫子兵法》十三篇，相傳為春秋孫武所著。本站底本取自維基文庫的通行本（武經七書系統），逐篇校對後使用。</p>
+      <p><b>分節</b>：十三篇為原典固有；篇內的分節與節名是本站為了方便閱讀與朗讀所定，並非原典既有的段落名稱。</p>
+      <p><b>白話</b>與<b>要義解讀</b>：本站自行撰寫。要義解讀先說本篇在兵法上的主張與常見誤讀，再談可以拿到今天用的地方，僅供參考，不代表任何學派定說，亦非引自任何在版著作。</p>
+      <p><b>異文說明</b>：《孫子》主要有兩個系統，武經七書本與十一家注本，文字互有出入。本站底本為前者，與坊間依十一家注本的版本相比，較明顯的差異例如虛實篇作「兵無成勢，無恒形」（十一家注本作「兵無常勢，水無常形」）、謀攻篇作「每戰必殆」（十一家注本作「每戰必敗」），另有大量「於／于」「眾／衆」等異體字差異。讀誦時若與手邊本子略有出入，屬版本差異。</p>
+      <p><b>朗讀</b>：使用瀏覽器內建語音合成，語音品質與可用語音由裝置決定。播放鍵按一下開始，朗讀中按一下暫停、再按一下繼續；<b>長按播放鍵可停止並回到本節開頭</b>。切換節時也會自動停止。</p>
+    </div>
+  </div>
+</div>
+
+<script src="sunzi.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,497 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 介面元件一律不可選取：iOS 的長按選字手勢會先攔截，導致長按停止無法觸發。
+ * 內文（.pane）不在此列，仍可選取複製。 */
+button,
+.tab,
+.seg-group,
+.player,
+.top,
+.sheet-head,
+.toc-list {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+:root {
+  --paper: #eef0ec;
+  --paper-2: #fbfcfa;
+  --ink: #23292c;
+  --ink-soft: #5d686d;
+  --line: #cfd6d3;
+  --accent: #3d5a6c;
+  --accent-2: #517386;
+}
+
+html { height: 100%; }
+
+body {
+  min-height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Noto Serif TC", "Songti TC", "PingFang TC", "Microsoft JhengHei", serif;
+  display: flex;
+  flex-direction: column;
+  -webkit-text-size-adjust: 100%;
+  /* 整頁預設不可選取，避免 iOS 長按時跳出選字放大鏡；內文另外開放 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ---------- 頁首 ---------- */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 0;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+h1 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+}
+
+.icon-btn {
+  position: absolute;
+  right: 0;
+  border: none;
+  background: none;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+}
+
+.chapter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.nav-btn {
+  flex: 0 0 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-2);
+  color: var(--accent);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+.chapter-name {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 8px;
+  position: relative;
+}
+
+.chapter-book {
+  font-size: 0.76rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+  letter-spacing: 0.08em;
+}
+
+#chapter-title {
+  font-size: 1.02rem;
+  line-height: 1.25;
+}
+
+.chapter-hint {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tab {
+  flex: 1;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.98rem;
+  color: var(--ink-soft);
+  padding: 9px 0 8px;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+}
+
+.tab.active {
+  color: var(--accent);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
+}
+
+.tab.speaking { color: var(--accent-2); }
+
+.tab.speaking::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  vertical-align: middle;
+  animation: blink 1.1s ease-in-out infinite;
+}
+
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+
+/* ---------- 內文 ---------- */
+
+.content {
+  flex: 1;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 96px;
+}
+
+/* 只有三個頁籤的內文可以選取複製 */
+.pane {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+  font-size: var(--pane-font, 1.08rem);
+  line-height: 2.05;
+  letter-spacing: 0.03em;
+}
+
+.pane p {
+  margin-bottom: 1em;
+  text-align: justify;
+}
+
+.pane-text p { font-size: calc(var(--pane-font, 1.08rem) * 1.06); }
+
+.pane .sent {
+  transition: background-color 0.2s;
+  border-radius: 3px;
+}
+
+.pane .sent.on {
+  background: #d7e4ea;
+  box-shadow: 0 0 0 2px #d7e4ea;
+}
+
+.pane .empty {
+  color: var(--ink-soft);
+  font-style: normal;
+}
+
+/* ---------- 播放列 ---------- */
+
+.player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
+  background: rgba(238, 240, 236, 0.96);
+  border-top: 1px solid var(--line);
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(6px);
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 10px 20px;
+  cursor: pointer;
+}
+
+.play-btn:active { background: var(--accent-2); }
+
+/* 長按停止：整顆按鈕與內部的圖示、文字都不可被 iOS 的選字手勢接手 */
+.play-btn,
+.play-btn * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+.play-btn { pointer-events: auto; }
+
+.ctl-btn {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper-2);
+  color: var(--accent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-text {
+  flex: 1;
+  text-align: right;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+/* ---------- 彈出面板 ---------- */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(35, 41, 44, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 8px calc(8px + env(safe-area-inset-bottom, 0px));
+}
+
+.sheet-card {
+  width: 100%;
+  max-width: 520px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--paper-2);
+  border-radius: 16px;
+  padding: 14px 16px 20px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.28);
+  animation: sheet-up 0.24s ease-out;
+}
+
+@keyframes sheet-up {
+  from { transform: translateY(28px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.sheet-head h2 {
+  font-size: 1.1rem;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+
+.close-btn {
+  border: none;
+  background: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.toc-list { list-style: none; }
+
+.toc-list li {
+  padding: 11px 8px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  gap: 10px;
+}
+
+.toc-list li:last-child { border-bottom: none; }
+.toc-list li.current { color: var(--accent); font-weight: 700; }
+.toc-list .no { color: var(--ink-soft); min-width: 2.4em; }
+
+.setting { margin-bottom: 14px; }
+
+.setting label {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.setting select,
+.setting input[type="range"] {
+  width: 100%;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.setting select {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.98rem;
+  padding: 8px 0;
+}
+
+.switch input { width: 20px; height: 20px; }
+
+.note {
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  margin-top: 6px;
+}
+
+.about-body p {
+  font-size: 0.95rem;
+  line-height: 1.85;
+  margin-bottom: 10px;
+  text-align: justify;
+}
+
+/* 螢幕常亮備援影片：只有在走備援時才顯示。
+ * iOS 會忽略 0 尺寸或 display:none 的影片，所以必須留下實際可見的尺寸。 */
+.wake-video {
+  display: none;
+  width: 20px;
+  height: 12px;
+  border-radius: 3px;
+  opacity: 0.5;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.wake-video.on { display: block; }
+
+.hidden { display: none !important; }
+
+.pane p.verse {
+  text-align: center;
+  letter-spacing: 0.12em;
+  margin: 1.2em 0;
+  color: var(--accent);
+}
+
+/* 播放鍵長按停止時的視覺回饋 */
+.play-btn.holding {
+  background: var(--accent-2);
+  transform: scale(0.97);
+}
+
+/* 分段選擇（字體大小） */
+.seg-group {
+  display: flex;
+  gap: 6px;
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 9px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.seg-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* 兩層目錄：篇 > 節 */
+.toc-book {
+  padding: 12px 8px 4px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.08em;
+  border-bottom: none;
+  cursor: default;
+}
+
+.toc-book:not(:first-child) {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+.toc-list li.toc-sec {
+  padding-left: 18px;
+}

@@ -1,0 +1,92 @@
+{
+ "_note": "節的切分與節名為本站所定，非原典固有。paras 為 scripts/source/ws_chapters.json 中該篇段落的索引。",
+ "chapters": [
+  {"no": 1, "name": "始計第一", "sections": [
+    {"name": "兵者國之大事", "paras": [0]},
+    {"name": "五事七計", "paras": [1]},
+    {"name": "兵者詭道", "paras": [2]},
+    {"name": "廟算多者勝", "paras": [3]}
+  ]},
+  {"no": 2, "name": "作戰第二", "sections": [
+    {"name": "久暴師則國用不足", "paras": [0]},
+    {"name": "因糧於敵", "paras": [1, 2, 3]},
+    {"name": "兵貴勝不貴久", "paras": [4, 5]}
+  ]},
+  {"no": 3, "name": "謀攻第三", "sections": [
+    {"name": "全勝為上", "paras": [0]},
+    {"name": "上兵伐謀", "paras": [1]},
+    {"name": "屈人之兵與用兵之數", "paras": [2, 3]},
+    {"name": "將與君", "paras": [4, 5]},
+    {"name": "知勝有五．知彼知己", "paras": [6, 7]}
+  ]},
+  {"no": 4, "name": "軍形第四", "sections": [
+    {"name": "先為不可勝", "paras": [0]},
+    {"name": "攻守之分", "paras": [1]},
+    {"name": "勝於易勝", "paras": [2, 3]},
+    {"name": "度量數稱勝", "paras": [4]}
+  ]},
+  {"no": 5, "name": "兵勢第五", "sections": [
+    {"name": "分數形名奇正", "paras": [0]},
+    {"name": "以正合以奇勝", "paras": [1]},
+    {"name": "勢險節短", "paras": [2, 3]},
+    {"name": "求之於勢", "paras": [4, 5]}
+  ]},
+  {"no": 6, "name": "虛實第六", "sections": [
+    {"name": "致人而不致於人", "paras": [0, 1]},
+    {"name": "攻其所不守", "paras": [2, 3]},
+    {"name": "形人而我無形", "paras": [4]},
+    {"name": "知戰之地與日", "paras": [5]},
+    {"name": "策作形角", "paras": [6]},
+    {"name": "兵形象水", "paras": [7]}
+  ]},
+  {"no": 7, "name": "軍爭第七", "sections": [
+    {"name": "以迂為直", "paras": [0]},
+    {"name": "軍爭為利為危", "paras": [1]},
+    {"name": "風林火山", "paras": [2]},
+    {"name": "金鼓旌旗", "paras": [3]},
+    {"name": "治氣治心治力治變", "paras": [4]},
+    {"name": "用兵八戒", "paras": [5]}
+  ]},
+  {"no": 8, "name": "九變第八", "sections": [
+    {"name": "九變之地與君命有所不受", "paras": [0]},
+    {"name": "必雜於利害", "paras": [1]},
+    {"name": "恃吾有以待之．將有五危", "paras": [2, 3]}
+  ]},
+  {"no": 9, "name": "行軍第九", "sections": [
+    {"name": "處軍四地", "paras": [0]},
+    {"name": "好高惡下", "paras": [1]},
+    {"name": "六害必亟去之", "paras": [2]},
+    {"name": "相敵之法", "paras": [3]},
+    {"name": "令之以文齊之以武", "paras": [4, 5]}
+  ]},
+  {"no": 10, "name": "地形第十", "sections": [
+    {"name": "地形六者", "paras": [0]},
+    {"name": "敗兵六者", "paras": [1]},
+    {"name": "進不求名退不避罪", "paras": [2]},
+    {"name": "視卒如嬰兒", "paras": [3]},
+    {"name": "知彼知己知天知地", "paras": [4]}
+  ]},
+  {"no": 11, "name": "九地第十一", "sections": [
+    {"name": "九地之變", "paras": [0]},
+    {"name": "使敵不相及", "paras": [1]},
+    {"name": "為客之道", "paras": [2]},
+    {"name": "率然之勢", "paras": [3]},
+    {"name": "將軍之事．靜以幽", "paras": [4]},
+    {"name": "深則專淺則散", "paras": [5]},
+    {"name": "霸王之兵", "paras": [6]},
+    {"name": "踐墨隨敵", "paras": [7]}
+  ]},
+  {"no": 12, "name": "火攻第十二", "sections": [
+    {"name": "火攻五者", "paras": [0]},
+    {"name": "五火之變", "paras": [1]},
+    {"name": "非利不動．慎戰", "paras": [2]}
+  ]},
+  {"no": 13, "name": "用間第十三", "sections": [
+    {"name": "不知敵情者不仁之至", "paras": [0]},
+    {"name": "五間俱起", "paras": [1]},
+    {"name": "三軍之事莫親於間", "paras": [2]},
+    {"name": "必索敵間．反間為本", "paras": [3]},
+    {"name": "以上智為間", "paras": [4]}
+  ]}
+ ]
+}
