@@ -41,6 +41,8 @@
     pause: document.getElementById("pause-range"),
     pauseVal: document.getElementById("pause-val"),
     voice: document.getElementById("voice-sel"),
+    voiceTest: document.getElementById("voice-test"),
+    voiceNote: document.getElementById("voice-note"),
     autoNext: document.getElementById("auto-next"),
     keepAwake: document.getElementById("keep-awake"),
     wakeNote: document.getElementById("wake-note"),
@@ -195,55 +197,144 @@
 
   /* ---------- 語音 ---------- */
 
-  var voices = [];
+  /* Android 的 TTS 會回報 zh_TW、zh-Hant-TW 等寫法，一律正規化後再比對；
+     直接把 zh_TW 這種底線寫法丟給 u.lang 會被引擎視為無效標籤而不出聲。 */
+  function lcLang(lang) {
+    return String(lang || "").toLowerCase().replace(/_/g, "-");
+  }
+
+  /* 轉成標準大小寫（zh-TW、zh-Hant-TW）：部分 Android 引擎是字串比對，
+     zh-tw 這種全小寫也可能匹配不到。 */
+  function normLang(lang) {
+    var parts = lcLang(lang).split("-").filter(Boolean);
+    return parts.map(function (p, i) {
+      if (i === 0) return p;
+      if (p.length === 4) return p.charAt(0).toUpperCase() + p.slice(1);
+      if (p.length === 2 || p.length === 3) return p.toUpperCase();
+      return p;
+    }).join("-");
+  }
+
+  /* 只保留台灣與香港華語。zh-TW / zh-Hant-TW / zh_TW / cmn-Hant-TW 都算台灣，
+     zh-HK / zh-Hant-HK / yue-Hant-HK 都算香港。 */
+  var VOICE_REGIONS = [
+    { key: "tw", label: "台灣", test: function (l) { return /(^|-)(tw)(-|$)/.test(l); } },
+    /* 香港只保留一個：裝置上常同時有「中文（香港）」與「粵語（香港）」等多個，
+       對本書的閱讀用途沒有差別，列太多只是干擾。limit 為每區最多列出的數量。 */
+    { key: "hk", label: "香港", limit: 1, test: function (l) { return /(^|-)(hk)(-|$)/.test(l); } },
+  ];
+
+  function regionOf(v) {
+    var l = lcLang(v && v.lang);
+    if (l.indexOf("zh") !== 0 && l.indexOf("cmn") !== 0 && l.indexOf("yue") !== 0) return null;
+    for (var i = 0; i < VOICE_REGIONS.length; i++) {
+      if (VOICE_REGIONS[i].test(l)) return VOICE_REGIONS[i];
+    }
+    return null;
+  }
+
+  /* 永遠向系統重新索取清單：Android Chrome 會讓先前 getVoices() 取得的
+     語音物件失效，沿用舊物件指派給 u.voice 會導致合成失敗且無聲。 */
+  function allVoices() {
+    try {
+      return window.speechSynthesis.getVoices() || [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /* 台灣在前、香港在後；同區內偏好品質較好的引擎，並依 region.limit 取前幾個 */
+  function usableVoices() {
+    var out = [];
+    VOICE_REGIONS.forEach(function (r) {
+      var group = allVoices().filter(function (v) { return regionOf(v) === r; });
+      group.sort(function (a, b) {
+        var pref = /Google|Siri|Meijia|美佳|Microsoft|Ting-Ting|Sin-ji/i;
+        var byPref = (pref.test(b.name || "") ? 1 : 0) - (pref.test(a.name || "") ? 1 : 0);
+        if (byPref) return byPref;
+        /* 同分時 zh- 優先於 yue-，確保每次挑到的是同一個、不隨清單順序漂移 */
+        var zh = function (v) { return lcLang(v.lang).indexOf("zh") === 0 ? 1 : 0; };
+        return zh(b) - zh(a);
+      });
+      out = out.concat(r.limit ? group.slice(0, r.limit) : group);
+    });
+    return out;
+  }
+
+  /* 語音清單在 Android 上是非同步送達的（首次 getVoices() 常常是空的，
+     onvoiceschanged 之後才有內容，且可能觸發多次），因此預設值要在清單真的
+     到齊時才套用，且不可覆寫使用者已經做過的選擇。 */
+  var voiceDefaultApplied = false;
+  /* 曾經降級成功過，代表所選語音在本機不可用，提示使用者 */
+  var voiceFallback = false;
 
   function refreshVoices() {
-    try {
-      voices = window.speechSynthesis.getVoices() || [];
-    } catch (e) {
-      voices = [];
-    }
-    var zh = voices.filter(function (v) {
-      return (v.lang || "").toLowerCase().replace("_", "-").indexOf("zh") === 0;
-    });
-    var list = zh.length ? zh : voices;
-    var cur = el.voice.value;
+    var list = usableVoices();
     el.voice.innerHTML = '<option value="">系統預設</option>';
     list.forEach(function (v) {
       var o = document.createElement("option");
       o.value = v.voiceURI;
-      o.textContent = v.name + "（" + v.lang + "）";
+      o.textContent = v.name + "（" + regionOf(v).label + "・" + v.lang + "）";
       el.voice.appendChild(o);
     });
-    el.voice.value = settings.voiceURI || cur || "";
-    if (el.voice.value !== settings.voiceURI) el.voice.value = "";
+
+    /* 舊版存下的可能是已被移除的語音（例如先前選過 zh-CN），此時清掉改用預設 */
+    var stored = settings.voiceURI;
+    var stillThere = stored && list.some(function (v) { return v.voiceURI === stored; });
+    if (stored && !stillThere && list.length) {
+      settings.voiceURI = "";
+      stored = "";
+      saveSettings();
+    }
+
+    /* 預設台灣：清單到齊且使用者尚未自行選過時，選第一個台灣語音 */
+    if (!stored && !voiceDefaultApplied && list.length) {
+      var tw = list.filter(function (v) { return regionOf(v).key === "tw"; })[0];
+      if (tw) {
+        settings.voiceURI = tw.voiceURI;
+        stored = tw.voiceURI;
+        saveSettings();
+      }
+      voiceDefaultApplied = true;
+    }
+
+    el.voice.value = stored || "";
+    if (el.voice.value !== (stored || "")) el.voice.value = "";
+    setVoiceNote(list.length);
   }
 
-  /* 優先台灣華語，其次任何華語，最後交給系統 */
+  function setVoiceNote(count, msg) {
+    if (!el.voiceNote) return;
+    if (msg) { el.voiceNote.textContent = msg; return; }
+    if (!count) {
+      el.voiceNote.textContent = "此裝置未安裝台灣或香港中文語音，將交由系統預設朗讀。";
+      return;
+    }
+    el.voiceNote.textContent = voiceFallback
+      ? "先前所選語音無法發聲，已自動改用系統預設。建議換一個語音，或到系統設定安裝中文語音資料。"
+      : "";
+  }
+
+  /* 依設定挑語音；一律從當下的清單解析，不沿用快取物件 */
   function pickVoice() {
+    var list = usableVoices();
     if (settings.voiceURI) {
-      var chosen = voices.filter(function (v) { return v.voiceURI === settings.voiceURI; })[0];
+      var chosen = list.filter(function (v) { return v.voiceURI === settings.voiceURI; })[0];
       if (chosen) return chosen;
     }
-    function langOf(v) { return (v.lang || "").toLowerCase().replace("_", "-"); }
-    var tw = voices.filter(function (v) {
-      var l = langOf(v);
-      return l.indexOf("zh") === 0 && (l.indexOf("tw") >= 0 || l.indexOf("hant") >= 0);
-    });
-    if (tw.length) {
-      var good = tw.filter(function (v) { return /Google|Siri|Meijia|美佳|Microsoft/i.test(v.name); });
-      return good[0] || tw[0];
-    }
-    var zh = voices.filter(function (v) { return langOf(v).indexOf("zh") === 0; });
-    return zh[0] || null;
+    var tw = list.filter(function (v) { return regionOf(v).key === "tw"; })[0];
+    if (tw) return tw;
+    return list[0] || null;
   }
 
-  function buildUtterance(text) {
+  /* withVoice 為 false 時只指定語言、不指定語音物件——Android 上合成失敗
+     多半出在 voice 指派，退回交給系統依 lang 選音通常就能出聲。 */
+  function buildUtterance(text, withVoice) {
     var u = new SpeechSynthesisUtterance(text);
-    var v = pickVoice();
+    var v = withVoice === false ? null : pickVoice();
     if (v) {
       u.voice = v;
-      u.lang = v.lang;
+      u.lang = normLang(v.lang) || "zh-TW";
     } else {
       u.lang = "zh-TW";
     }
@@ -500,7 +591,12 @@
     if (activePane !== item.pane) showPane(item.pane);
     highlight(item.pane, item.index);
     setStatus("朗讀中：" + PANE_NAME[item.pane] + "　長按停止");
-    var u = buildUtterance(item.say);
+    speakItem(item, epoch, true);
+  }
+
+  /* withVoice=false 為降級重試：不指定語音物件，只給語言，交由系統選音。 */
+  function speakItem(item, epoch, withVoice) {
+    var u = buildUtterance(item.say, withVoice);
     /* 少數環境不會回報 onend/onerror，加上寬鬆的逾時保護避免整串卡住 */
     var advanced = false;
     var guard = setTimeout(function () { advance(); },
@@ -517,12 +613,30 @@
       clearTimeout(guard);
       playNext(epoch);
     }
+    function onError(e) {
+      if (advanced) return;
+      if (epoch !== speech.epoch || !speech.playing) return;
+      var reason = (e && e.error) ? String(e.error) : "";
+      /* 使用者主動停止會以 canceled/interrupted 回報，不是故障，不必重試也不必提示 */
+      if (reason === "canceled" || reason === "interrupted") { advance(); return; }
+      /* Android 上失敗多半出在 voice 指派：先不帶語音物件重試一次 */
+      if (withVoice && u.voice) {
+        advanced = true;
+        clearTimeout(guard);
+        voiceFallback = true;
+        setStatus("此語音無法發聲，改用系統預設中…");
+        speakItem(item, epoch, false);
+        return;
+      }
+      setStatus("語音合成失敗" + (reason ? "（" + reason + "）" : "") + "：請到設定改選其他語音，或在系統安裝中文語音資料");
+      advance();
+    }
     u.onend = advance;
-    u.onerror = advance;
+    u.onerror = onError;
     try {
       window.speechSynthesis.speak(u);
     } catch (e) {
-      advance();
+      onError({ error: "speak-threw" });
     }
   }
 
@@ -731,8 +845,60 @@
   });
   el.voice.addEventListener("change", function () {
     settings.voiceURI = el.voice.value;
+    voiceDefaultApplied = true;   /* 使用者已自行選過，之後不再套用預設 */
+    voiceFallback = false;
     saveSettings();
+    setVoiceNote(usableVoices().length);
   });
+
+  /* 試聽：讓使用者不必進入朗讀流程就能確認所選語音在本機能不能發聲 */
+  if (el.voiceTest) {
+    el.voiceTest.addEventListener("click", function () {
+      if (!("speechSynthesis" in window)) {
+        setVoiceNote(0, "此瀏覽器不支援語音朗讀。");
+        return;
+      }
+      try { window.speechSynthesis.cancel(); } catch (e) { /* 忽略 */ }
+      startAudioKeepAlive();
+      testSpeak(true);
+    });
+  }
+
+  function testSpeak(withVoice) {
+    var u = buildUtterance("孫子曰：兵者，國之大事，死生之地。", withVoice);
+    var done = false;
+    var guard = setTimeout(function () {
+      if (done) return;
+      done = true;
+      setVoiceNote(1, "試聽逾時，這個語音在本機可能無法使用，請改選其他語音。");
+    }, 8000);
+    u.onstart = function () {
+      clearTimeout(guard);
+      done = true;
+      setVoiceNote(1, withVoice
+        ? "試聽正常，這個語音可以使用。"
+        : "改用系統預設後可以發聲，代表所選語音在本機不可用。");
+    };
+    u.onerror = function (e) {
+      if (done) return;
+      done = true;
+      clearTimeout(guard);
+      var reason = (e && e.error) ? String(e.error) : "";
+      if (reason === "canceled" || reason === "interrupted") return;
+      if (withVoice) {
+        setVoiceNote(1, "這個語音無法發聲，改用系統預設再試…");
+        testSpeak(false);
+        return;
+      }
+      setVoiceNote(1, "系統預設也無法發聲" + (reason ? "（" + reason + "）" : "")
+        + "，請到系統設定安裝中文語音資料。");
+    };
+    try {
+      window.speechSynthesis.speak(u);
+    } catch (e) {
+      u.onerror({ error: "speak-threw" });
+    }
+  }
   el.autoNext.addEventListener("change", function () {
     settings.autoNext = el.autoNext.checked;
     saveSettings();
@@ -760,9 +926,12 @@
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState === "hidden") {
       if (speech.playing) {
-        speech.pendingResume = true;
+        /* 使用者若已自行按暫停，關掉螢幕再打開不應該自作主張接著唸下去；
+           只有「正在朗讀中」被系統打斷才標記待續。 */
+        var wasPaused = speech.paused;
+        speech.pendingResume = !wasPaused;
         stopSpeech();
-        setStatus("已暫停，回到本頁後續讀");
+        setStatus(wasPaused ? "已停止，按播放可重新開始這一節" : "已暫停，回到本頁後續讀");
       }
     } else if (document.visibilityState === "visible") {
       if (speech.pendingResume) {

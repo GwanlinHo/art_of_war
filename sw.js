@@ -1,6 +1,6 @@
 /* Service Worker：快取全部檔案供離線閱讀
  * 更新任何檔案後，請把 CACHE_NAME 版號加一 */
-var CACHE_NAME = "sunzi-cache-v1";
+var CACHE_NAME = "sunzi-cache-v2";
 var ASSETS = [
   "./",
   "./index.html",

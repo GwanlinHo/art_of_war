@@ -23,7 +23,8 @@ async function installStubs(page) {
       value: {
         getVoices: () => [fakeVoice],
         speak(u) {
-          window.__spoken.push({ text: u.text, t: Date.now(), rate: u.rate, lang: u.lang });
+          window.__spoken.push({ text: u.text, t: Date.now(), rate: u.rate, lang: u.lang,
+            voice: u.voice ? u.voice.voiceURI : null });
           setTimeout(() => { if (u.onend) u.onend(); }, window.__speakDelay || 10);
         },
         cancel() { window.__cancels++; },
@@ -49,6 +50,63 @@ async function installStubs(page) {
       },
     });
   });
+}
+
+/* Android 形狀的語音清單：底線 lang、Hant 變體、重複 voiceURI、非中文語音，
+   且清單是非同步送達的（首次 getVoices() 為空，稍後才觸發 onvoiceschanged）。
+   failVoiceURIs 內的語音一旦被指派給 u.voice 就回報 synthesis-failed，
+   用來重現「手動選了台灣語音卻不出聲」。 */
+async function installAndroidStubs(page, opts) {
+  await page.evaluateOnNewDocument((o) => {
+    window.__spoken = [];
+    window.__cancels = 0;
+    window.__wake = { requests: 0, releases: 0 };
+    const VOICES = [
+      { name: "Chinese (China)", lang: "zh_CN", voiceURI: "zh-CN-x-ccc-network" },
+      { name: "Chinese (Taiwan)", lang: "zh_TW", voiceURI: "zh-TW-x-ttt-local" },
+      { name: "Chinese (Hong Kong)", lang: "zh_HK", voiceURI: "zh-HK-x-hhh-local" },
+      { name: "Cantonese (Hong Kong)", lang: "yue-Hant-HK", voiceURI: "yue-HK-x-yyy-local" },
+      { name: "Chinese (Taiwan) Network", lang: "zh-Hant-TW", voiceURI: "zh-TW-x-ttt-network" },
+      { name: "English (US)", lang: "en_US", voiceURI: "en-US-x-eee-local" },
+      { name: "日本語", lang: "ja_JP", voiceURI: "ja-JP-x-jjj-local" },
+    ];
+    let ready = false;
+    const fail = o.failVoiceURIs || [];
+    const target = { onvoiceschanged: null };
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: {
+        getVoices: () => (ready ? VOICES.slice() : []),
+        speak(u) {
+          if (u.voice && fail.indexOf(u.voice.voiceURI) >= 0) {
+            setTimeout(() => { if (u.onerror) u.onerror({ error: "synthesis-failed" }); }, 5);
+            return;
+          }
+          window.__spoken.push({ text: u.text, lang: u.lang,
+            voice: u.voice ? u.voice.voiceURI : null });
+          setTimeout(() => { if (u.onstart) u.onstart(); }, 3);
+          setTimeout(() => { if (u.onend) u.onend(); }, window.__speakDelay || 10);
+        },
+        cancel() { window.__cancels++; },
+        pause() {}, resume() {},
+        get onvoiceschanged() { return target.onvoiceschanged; },
+        set onvoiceschanged(fn) { target.onvoiceschanged = fn; },
+      },
+    });
+    Object.defineProperty(window, "SpeechSynthesisUtterance", {
+      configurable: true,
+      value: function (text) { this.text = text; },
+    });
+    /* 模擬 Android：清單稍後才到，且 onvoiceschanged 觸發兩次 */
+    window.__deliverVoices = () => {
+      ready = true;
+      if (target.onvoiceschanged) { target.onvoiceschanged(); target.onvoiceschanged(); }
+    };
+    Object.defineProperty(navigator, "wakeLock", {
+      configurable: true,
+      value: { request() { return Promise.reject(new Error("no")); } },
+    });
+  }, opts || {});
 }
 
 /* 觸控裝置（iOS 走這條路）的短按與長按 */
@@ -356,6 +414,29 @@ async function enterWithSettings(page, settings) {
   const resumedLabel = await page.$eval("#play-label", (e) => e.textContent);
   ok(resumedLabel === "暫停", "回到前景後自動續讀");
   await longPressPlay(page);
+
+  // 8b. 自行暫停後關螢幕再打開，不可自動接續朗讀
+  await page.evaluate(() => { window.__spoken = []; window.__speakDelay = 400; });
+  await page.click("#play-btn");
+  await page.waitForFunction(() => window.__spoken.length >= 1, { timeout: 8000 });
+  await page.click("#play-btn");                       /* 短按＝暫停 */
+  const pauseBeforeHide = await page.$eval("#play-label", (e) => e.textContent);
+  ok(pauseBeforeHide === "繼續", "短按進入暫停狀態（" + pauseBeforeHide + "）");
+  const beforeHide = await page.evaluate(() => window.__spoken.length);
+  await setVisibility("hidden");
+  await new Promise((r) => setTimeout(r, 300));
+  await setVisibility("visible");
+  await new Promise((r) => setTimeout(r, 1500));
+  const afterShow = await page.evaluate(() => ({
+    count: window.__spoken.length,
+    label: document.getElementById("play-label").textContent,
+    status: document.getElementById("status").textContent,
+  }));
+  ok(afterShow.count === beforeHide,
+    "暫停後關螢幕再打開不會自動接續朗讀（" + beforeHide + " -> " + afterShow.count + "）");
+  ok(afterShow.label === "朗讀", "暫停後關螢幕再打開回到未播放狀態（" + afterShow.label + "）");
+  ok(afterShow.status.indexOf("續讀") < 0, "不再顯示會自動續讀的提示（" + afterShow.status + "）");
+  await longPressPlay(page);
   await page.evaluate(() => { window.__speakDelay = 10; });
 
   // 9. 沒有 Wake Lock API 的裝置：必須改用可見的無聲影片備援
@@ -458,6 +539,106 @@ async function enterWithSettings(page, settings) {
   const offlineChapter = await page.$eval("#pane-text", (e) => e.textContent);
   ok(offlineChapter.indexOf("兵形象水") >= 0, "離線仍可切換節並讀到內容");
   await page.setOfflineMode(false);
+
+  // 11. Android 語音：清單過濾、預設台灣、lang 正規化、失敗降級
+  console.log("--- Android 語音 ---");
+  const andPage = await browser.newPage();
+  await andPage.setViewport({ width: 420, height: 860 });
+  andPage.on("pageerror", (e) => { console.log("[X] android page error: " + e.message); fail++; });
+  await installAndroidStubs(andPage, { failVoiceURIs: [] });
+  await andPage.goto(NEUTRAL, { waitUntil: "domcontentloaded" });
+  await andPage.evaluate(() => localStorage.removeItem("sunzi-settings-v1"));
+  await andPage.goto(BASE, { waitUntil: "domcontentloaded" });
+  await andPage.waitForFunction(() => document.querySelectorAll("#pane-text .sent").length > 0,
+    { timeout: 15000 });
+
+  // 清單尚未送達時不可誤鎖預設
+  await andPage.click("#settings-btn");
+  const beforeReady = await andPage.$$eval("#voice-sel option", (o) => o.map((x) => x.value));
+  ok(beforeReady.length === 1 && beforeReady[0] === "",
+    "語音清單未送達時只有「系統預設」（" + beforeReady.length + " 項）");
+
+  // 清單送達後（onvoiceschanged 觸發兩次）
+  await andPage.evaluate(() => window.__deliverVoices());
+  await andPage.waitForFunction(() => document.querySelectorAll("#voice-sel option").length > 1,
+    { timeout: 5000 });
+  const opts = await andPage.$$eval("#voice-sel option",
+    (o) => o.map((x) => ({ v: x.value, t: x.textContent })));
+  const listed = opts.filter((o) => o.v);
+  ok(listed.length === 3,
+    "只保留台灣 2 個與香港 1 個共 3 個語音（" + listed.length + "：" + listed.map((o) => o.v).join(", ") + "）");
+  ok(!listed.some((o) => /zh-CN|en-US|ja-JP/.test(o.v)), "中國、英文、日文語音已排除");
+  ok(listed.filter((o) => /台灣/.test(o.t)).length === 2, "台灣語音全部列出（2 個）");
+  const hk = listed.filter((o) => /香港/.test(o.t));
+  ok(hk.length === 1, "香港語音只列一個（" + hk.map((o) => o.v).join(", ") + "）");
+  ok(hk[0].v === "zh-HK-x-hhh-local", "香港挑的是 zh- 而非 yue-（" + hk[0].v + "）");
+  ok(/(台灣)/.test(listed[0].t) && /(台灣)/.test(listed[1].t), "台灣語音排在香港之前");
+  const selected = await andPage.$eval("#voice-sel", (e) => e.value);
+  ok(/^zh-TW-/.test(selected), "預設選中台灣語音（" + selected + "）");
+
+  // 朗讀時 u.lang 必須是正規化過的 BCP-47（不可出現底線）
+  await andPage.click('.close-btn[data-close="settings"]');
+  await andPage.click("#play-btn");
+  await andPage.waitForFunction(() => window.__spoken.length >= 1, { timeout: 8000 });
+  const andSpoken = await andPage.evaluate(() => window.__spoken[0]);
+  ok(andSpoken.lang === "zh-TW" || andSpoken.lang === "zh-Hant-TW",
+    "u.lang 已正規化為標準大小寫的合法標籤（" + andSpoken.lang + "）");
+  ok(andSpoken.voice === selected, "實際使用所選的台灣語音（" + andSpoken.voice + "）");
+  await longPressPlay(andPage);
+  await andPage.close();
+
+  // 所選語音會合成失敗時：降級為不指定語音、只給 lang，仍須出聲
+  const failPage = await browser.newPage();
+  await failPage.setViewport({ width: 420, height: 860 });
+  failPage.on("pageerror", (e) => { console.log("[X] fail page error: " + e.message); fail++; });
+  await installAndroidStubs(failPage,
+    { failVoiceURIs: ["zh-TW-x-ttt-local", "zh-TW-x-ttt-network"] });
+  await failPage.goto(NEUTRAL, { waitUntil: "domcontentloaded" });
+  await failPage.evaluate(() => localStorage.removeItem("sunzi-settings-v1"));
+  await failPage.goto(BASE, { waitUntil: "domcontentloaded" });
+  await failPage.waitForFunction(() => document.querySelectorAll("#pane-text .sent").length > 0,
+    { timeout: 15000 });
+  await failPage.evaluate(() => window.__deliverVoices());
+  await failPage.click("#settings-btn");
+  await failPage.waitForFunction(() => document.querySelectorAll("#voice-sel option").length > 1,
+    { timeout: 5000 });
+  await failPage.click('.close-btn[data-close="settings"]');
+  await failPage.click("#play-btn");
+  await failPage.waitForFunction(() => window.__spoken.length >= 1, { timeout: 8000 });
+  const fallback = await failPage.evaluate(() => window.__spoken[0]);
+  ok(fallback.voice === null, "語音合成失敗後改為不指定語音物件重試");
+  ok(fallback.lang === "zh-TW", "降級後仍以 zh-TW 朗讀（" + fallback.lang + "）");
+  ok(fallback.text && fallback.text.indexOf("孫子曰") === 0,
+    "降級重試的是同一句、沒有被跳過（" + String(fallback.text).slice(0, 8) + "）");
+  await longPressPlay(failPage);
+
+  // 試聽按鈕：所選語音壞掉時要明確告知，而不是靜默
+  await failPage.click("#settings-btn");
+  await failPage.click("#voice-test");
+  await failPage.waitForFunction(
+    () => document.getElementById("voice-note").textContent.indexOf("系統預設") >= 0,
+    { timeout: 8000 });
+  const note = await failPage.$eval("#voice-note", (e) => e.textContent);
+  ok(note.indexOf("系統預設") >= 0, "試聽會回報所選語音不可用（" + note + "）");
+  await failPage.close();
+
+  // 舊設定殘留的 zh-CN 語音應被清掉並改回台灣
+  const stalePage = await browser.newPage();
+  await stalePage.setViewport({ width: 420, height: 860 });
+  await installAndroidStubs(stalePage, { failVoiceURIs: [] });
+  await stalePage.goto(NEUTRAL, { waitUntil: "domcontentloaded" });
+  await stalePage.evaluate(() => localStorage.setItem("sunzi-settings-v1",
+    JSON.stringify({ chapter: 1, voiceURI: "zh-CN-x-ccc-network" })));
+  await stalePage.goto(BASE, { waitUntil: "domcontentloaded" });
+  await stalePage.waitForFunction(() => document.querySelectorAll("#pane-text .sent").length > 0,
+    { timeout: 15000 });
+  await stalePage.evaluate(() => window.__deliverVoices());
+  await stalePage.click("#settings-btn");
+  await stalePage.waitForFunction(() => document.querySelectorAll("#voice-sel option").length > 1,
+    { timeout: 5000 });
+  const staleSel = await stalePage.$eval("#voice-sel", (e) => e.value);
+  ok(/^zh-TW-/.test(staleSel), "舊設定的 zh-CN 語音被清除並改回台灣（" + staleSel + "）");
+  await stalePage.close();
 
   await browser.close();
   console.log(fail === 0 ? "[O] ALL E2E TESTS PASSED" : "[X] " + fail + " E2E TEST(S) FAILED");
