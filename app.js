@@ -46,7 +46,6 @@
     autoNext: document.getElementById("auto-next"),
     keepAwake: document.getElementById("keep-awake"),
     wakeNote: document.getElementById("wake-note"),
-    wakeVideo: document.getElementById("wake-video"),
   };
 
   /* ---------- 設定存取 ---------- */
@@ -390,13 +389,14 @@
 
   /* ---------- 螢幕常亮 ---------- */
 
-  /* 兩條路：優先 Screen Wake Lock；沒有或失敗時，改用無聲循環影片（iOS 舊版唯一可行的
-   * 作法）。影片必須在使用者手勢當下就開始播放，而且不能是 0 尺寸或 display:none，
-   * 否則 iOS 會當成沒有在播放，螢幕照樣鎖。 */
+  /* 只用 Screen Wake Lock。不用無聲影片備援：WebKit（HTMLMediaElement::shouldDisableSleep）
+   * 對設了 loop 或沒有音軌的影片不會阻止休眠，那種備援在 iOS 從來沒有效果。
+   * WebKit 規則：同一頁面第一次要求必須在使用者手勢當下，成功過一次之後就不需要手勢；
+   * 頁面進背景時所有鎖都會被收回。所以按朗讀時要一次，回前景與朗讀中每 10 秒檢查補回。 */
 
   var wakeLock = null;
-  var wakeVideoOn = false;
-  var wakeState = "idle";   /* idle | lock | video | failed | off */
+  var wakePending = false;
+  var wakeState = "idle";   /* idle | lock | pending | failed | unsupported | off */
 
   function wakeSupported() {
     return "wakeLock" in navigator;
@@ -407,86 +407,69 @@
     updateWakeNote();
   }
 
+  function refreshWakeState() {
+    if (!settings.keepAwake) setWakeState("off");
+    else if (!speech.playing) setWakeState("idle");
+    else if (!wakeSupported()) setWakeState("unsupported");
+    else if (wakeLock) setWakeState("lock");
+    else if (wakePending) setWakeState("pending");
+    else setWakeState("failed");
+  }
+
+  /* 已經有鎖或正在要就不重複要（避免握著多把鎖）；背景時要不到，等回前景再補 */
   function requestWake() {
     if (!settings.keepAwake) {
-      setWakeState("off");
+      releaseWake();
       return;
     }
-    /* 先在手勢當下把備援影片播起來，之後 Wake Lock 成功再收掉 */
-    startWakeVideo();
-    setWakeState(wakeVideoOn ? "video" : "failed");
-    if (!wakeSupported()) return;
-    try {
-      navigator.wakeLock.request("screen").then(function (lock) {
-        wakeLock = lock;
-        lock.addEventListener("release", function () {
-          wakeLock = null;
-          /* 系統收回時（例如切到背景又回來），朗讀還在就改用影片頂著 */
-          if (speech.playing && settings.keepAwake) {
-            startWakeVideo();
-            setWakeState(wakeVideoOn ? "video" : "failed");
+    if (wakeSupported() && !wakeLock && !wakePending && document.visibilityState !== "hidden") {
+      wakePending = true;
+      try {
+        navigator.wakeLock.request("screen").then(function (lock) {
+          wakePending = false;
+          /* 要到的時候朗讀已經停了，就立刻放掉 */
+          if (!speech.playing || !settings.keepAwake) {
+            try { lock.release(); } catch (e) { /* 忽略 */ }
+            refreshWakeState();
+            return;
           }
+          wakeLock = lock;
+          lock.addEventListener("release", function () {
+            /* 系統收回（切背景、省電）；回前景或下一次定期檢查時補回 */
+            if (wakeLock === lock) wakeLock = null;
+            refreshWakeState();
+          });
+          refreshWakeState();
+        }, function () {
+          wakePending = false;
+          refreshWakeState();
         });
-        stopWakeVideo();
-        setWakeState("lock");
-      }).catch(function () {
-        /* 取得失敗就維持影片備援 */
-      });
-    } catch (e) { /* 維持影片備援 */ }
+      } catch (e) {
+        wakePending = false;
+      }
+    }
+    refreshWakeState();
   }
 
   function releaseWake() {
+    var lock = wakeLock;
+    wakeLock = null;
     try {
-      if (wakeLock) {
-        wakeLock.release();
-        wakeLock = null;
-      }
+      if (lock) lock.release();
     } catch (e) { /* 忽略 */ }
-    stopWakeVideo();
-    setWakeState("idle");
-  }
-
-  function startWakeVideo() {
-    var v = el.wakeVideo;
-    if (!v || wakeVideoOn) return;
-    try {
-      if (!v.getAttribute("src")) v.setAttribute("src", "wake.mp4");
-      v.muted = true;
-      v.loop = true;
-      v.playsInline = true;
-      v.classList.add("on");   /* 必須有實際尺寸，iOS 才認定影片在播放 */
-      var pr = v.play();
-      if (pr && pr.catch) {
-        pr.catch(function () {
-          v.classList.remove("on");
-          wakeVideoOn = false;
-          /* Wake Lock 已經取得時，影片播不起來無妨，別把狀態誤報成失敗 */
-          if (!wakeLock) setWakeState(settings.keepAwake && speech.playing ? "failed" : "idle");
-        });
-      }
-      wakeVideoOn = true;
-    } catch (e) {
-      wakeVideoOn = false;
-    }
-  }
-
-  function stopWakeVideo() {
-    var v = el.wakeVideo;
-    if (!v) return;
-    try { v.pause(); } catch (e) { /* 忽略 */ }
-    v.classList.remove("on");
-    wakeVideoOn = false;
+    refreshWakeState();
   }
 
   var WAKE_TEXT = {
     idle: function () {
       return wakeSupported()
-        ? "本裝置支援 Wake Lock，朗讀期間會直接阻止螢幕自動關閉。"
-        : "本裝置不支援 Wake Lock，朗讀期間改用無聲影片維持螢幕常亮。";
+        ? "本裝置支援 Wake Lock，朗讀期間會阻止螢幕自動關閉。"
+        : WAKE_TEXT.unsupported();
     },
     lock: function () { return "目前狀態：Wake Lock 生效中，螢幕不會自動關閉。"; },
-    video: function () { return "目前狀態：無聲影片備援生效中（本裝置沒有 Wake Lock 或取得失敗）。"; },
-    failed: function () { return "目前狀態：無法維持螢幕常亮，請把系統的自動鎖定時間調長。"; },
+    pending: function () { return "目前狀態：正在取得 Wake Lock…"; },
+    failed: function () { return "目前狀態：Wake Lock 取得失敗，朗讀中會每 10 秒重試；也可以把系統的自動鎖定時間調長。"; },
+    unsupported: function () { return "本裝置不支援 Wake Lock，朗讀時請把系統的自動鎖定時間調長。"; },
     off: function () { return "已關閉螢幕常亮。"; },
   };
 
@@ -568,6 +551,8 @@
       if (speech.playing && !speech.paused) {
         try { window.speechSynthesis.resume(); } catch (e) { /* 忽略 */ }
       }
+      /* Wake Lock 被系統收回時補回 */
+      if (speech.playing && settings.keepAwake) requestWake();
     }, 10000);
     updatePlayButton();
     playNext(speech.epoch);

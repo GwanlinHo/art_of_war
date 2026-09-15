@@ -434,20 +434,6 @@ h1 {
   text-align: justify;
 }
 
-/* 螢幕常亮備援影片：只有在走備援時才顯示。
- * iOS 會忽略 0 尺寸或 display:none 的影片，所以必須留下實際可見的尺寸。 */
-.wake-video {
-  display: none;
-  width: 20px;
-  height: 12px;
-  border-radius: 3px;
-  opacity: 0.5;
-  flex: 0 0 auto;
-  pointer-events: none;
-}
-
-.wake-video.on { display: block; }
-
 .hidden { display: none !important; }
 
 .pane p.verse {

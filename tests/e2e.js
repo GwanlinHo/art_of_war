@@ -15,7 +15,9 @@ async function installStubs(page) {
   await page.evaluateOnNewDocument(() => {
     window.__spoken = [];
     window.__cancels = 0;
-    window.__wake = { requests: 0, releases: 0 };
+    window.__wake = { requests: 0, releases: 0, locks: [] };
+    window.__wake.held = () => window.__wake.locks.filter((l) => !l.released).length;
+    window.__wake.systemRelease = () => window.__wake.locks.forEach((l) => l.fire());
     const fakeVoice = { name: "Test TW", lang: "zh-TW", voiceURI: "test-tw", default: true };
     /* speechSynthesis 是唯讀 getter，必須用 defineProperty 覆寫 */
     Object.defineProperty(window, "speechSynthesis", {
@@ -42,10 +44,24 @@ async function installStubs(page) {
       value: {
         request() {
           window.__wake.requests++;
-          return Promise.resolve({
-            release() { window.__wake.releases++; return Promise.resolve(); },
-            addEventListener() {},
-          });
+          const handlers = [];
+          const lock = {
+            released: false,
+            /* 系統收回：標記失效並觸發 release 事件（不算頁面自己放掉） */
+            fire() {
+              if (lock.released) return;
+              lock.released = true;
+              handlers.forEach((h) => h({}));
+            },
+            release() {
+              if (!lock.released) window.__wake.releases++;
+              lock.fire();
+              return Promise.resolve();
+            },
+            addEventListener(ev, fn) { if (ev === "release") handlers.push(fn); },
+          };
+          window.__wake.locks.push(lock);
+          return Promise.resolve(lock);
         },
       },
     });
@@ -60,7 +76,9 @@ async function installAndroidStubs(page, opts) {
   await page.evaluateOnNewDocument((o) => {
     window.__spoken = [];
     window.__cancels = 0;
-    window.__wake = { requests: 0, releases: 0 };
+    window.__wake = { requests: 0, releases: 0, locks: [] };
+    window.__wake.held = () => window.__wake.locks.filter((l) => !l.released).length;
+    window.__wake.systemRelease = () => window.__wake.locks.forEach((l) => l.fire());
     const VOICES = [
       { name: "Chinese (China)", lang: "zh_CN", voiceURI: "zh-CN-x-ccc-network" },
       { name: "Chinese (Taiwan)", lang: "zh_TW", voiceURI: "zh-TW-x-ttt-local" },
@@ -439,7 +457,7 @@ async function enterWithSettings(page, settings) {
   await longPressPlay(page);
   await page.evaluate(() => { window.__speakDelay = 10; });
 
-  // 9. 沒有 Wake Lock API 的裝置：必須改用可見的無聲影片備援
+  // 9. 沒有 Wake Lock API 的裝置：已拿掉無效的影片備援，設定面板要說明不支援
   const noLockPage = await browser.newPage();
   await noLockPage.setViewport({ width: 420, height: 860 });
   noLockPage.on("pageerror", (e) => { console.log("[X] page error: " + e.message); fail++; });
@@ -464,36 +482,18 @@ async function enterWithSettings(page, settings) {
   await noLockPage.evaluate(() => { window.__speakDelay = 400; });
   await noLockPage.click("#play-btn");
   await noLockPage.waitForFunction(() => window.__spoken.length >= 1, { timeout: 8000 });
-  const fb = await noLockPage.evaluate(() => {
-    const v = document.getElementById("wake-video");
-    const r = v.getBoundingClientRect();
-    const cs = getComputedStyle(v);
-    return {
-      plays: window.__videoPlays,
-      onClass: v.classList.contains("on"),
-      w: r.width, h: r.height,
-      display: cs.display,
-      src: v.getAttribute("src"),
-      note: document.getElementById("wake-note").textContent,
-    };
-  });
-  ok(fb.plays >= 1, "無 Wake Lock 時會播放備援影片");
-  ok(fb.onClass && fb.display !== "none" && fb.w >= 8 && fb.h >= 8,
-     "備援影片有實際可見尺寸（" + fb.w + "x" + fb.h + "，display " + fb.display + "）");
-  ok(fb.src === "wake.mp4", "備援影片來源為 wake.mp4（" + fb.src + "）");
-  await noLockPage.click("#settings-btn");
-  const fbNote = await noLockPage.$eval("#wake-note", (e) => e.textContent);
-  ok(fbNote.indexOf("影片備援") >= 0, "設定面板顯示走的是影片備援（" + fbNote + "）");
-  await noLockPage.click('.close-btn[data-close="settings"]');
+  const fb = await noLockPage.evaluate(() => ({
+    plays: window.__videoPlays,
+    video: !!document.querySelector("video"),
+    note: document.getElementById("wake-note").textContent,
+  }));
+  ok(!fb.video, "頁面上已沒有無聲影片備援");
+  ok(fb.plays === 0, "朗讀時不播放任何影片（" + fb.plays + "）");
+  ok(fb.note.indexOf("不支援") >= 0, "無 Wake Lock 時設定面板說明不支援（" + fb.note + "）");
   await longPressPlay(noLockPage);
-  const afterStopFb = await noLockPage.evaluate(() => {
-    const v = document.getElementById("wake-video");
-    return { onClass: v.classList.contains("on"), paused: v.paused };
-  });
-  ok(!afterStopFb.onClass, "停止朗讀後收起備援影片");
   await noLockPage.close();
 
-  // 有 Wake Lock 時應顯示 Wake Lock 生效，且不留下備援影片
+  // 有 Wake Lock：生效、被系統收回後補回、始終只握一把
   await enterWithSettings(page, { chapter: 1, scope: "text", pauseSec: 0.5, keepAwake: true });
   await page.evaluate(() => { window.__speakDelay = 400; });
   await page.click("#play-btn");
@@ -501,14 +501,24 @@ async function enterWithSettings(page, settings) {
   await page.click("#settings-btn");
   await page.waitForFunction(() => document.getElementById("wake-note").textContent.indexOf("Wake Lock 生效") >= 0,
     { timeout: 5000 });
-  const lockNote = await page.evaluate(() => ({
-    note: document.getElementById("wake-note").textContent,
-    videoOn: document.getElementById("wake-video").classList.contains("on"),
-  }));
-  ok(lockNote.note.indexOf("Wake Lock 生效") >= 0, "有 Wake Lock 時顯示 Wake Lock 生效");
-  ok(!lockNote.videoOn, "Wake Lock 生效後收掉備援影片");
+  ok(true, "有 Wake Lock 時顯示 Wake Lock 生效");
+  ok((await page.evaluate(() => window.__wake.held())) === 1, "朗讀中只握一把 Wake Lock");
+  await page.evaluate(() => window.__wake.systemRelease());
+  const releasedNote = await page.$eval("#wake-note", (e) => e.textContent);
+  ok(releasedNote.indexOf("失敗") >= 0, "被系統收回後設定面板顯示失效（" + releasedNote + "）");
+  const req0 = await page.evaluate(() => window.__wake.requests);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForFunction(() => document.getElementById("wake-note").textContent.indexOf("Wake Lock 生效") >= 0,
+    { timeout: 5000 });
+  const regained = await page.evaluate(() => ({ requests: window.__wake.requests, held: window.__wake.held() }));
+  ok(regained.requests === req0 + 1 && regained.held === 1,
+     "回前景補回一把（要求 " + req0 + "→" + regained.requests + "，握著 " + regained.held + "）");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await new Promise((r) => setTimeout(r, 300));
+  ok((await page.evaluate(() => window.__wake.requests)) === regained.requests, "已握著鎖時不重複要求");
   await page.click('.close-btn[data-close="settings"]');
   await longPressPlay(page);
+  ok((await page.evaluate(() => window.__wake.held())) === 0, "停止朗讀後放掉 Wake Lock");
   await page.evaluate(() => { window.__speakDelay = 10; });
 
   // 10. 設定與閱讀進度保存

@@ -1,13 +1,12 @@
 /* Service Worker：快取全部檔案供離線閱讀
  * 更新任何檔案後，請把 CACHE_NAME 版號加一 */
-var CACHE_NAME = "sunzi-cache-v2";
+var CACHE_NAME = "sunzi-cache-v3";
 var ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./sunzi.js",
   "./app.js",
-  "./wake.mp4",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
